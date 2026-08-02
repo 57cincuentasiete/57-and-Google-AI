@@ -76,7 +76,7 @@ fun ScheduleHeader(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Auto-Sync 3x Daily (8AM • 12PM • 6PM)",
+                        text = "Live News Sync",
                         style = MaterialTheme.typography.labelMedium.copy(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.5.sp
@@ -139,24 +139,19 @@ fun ScheduleHeader(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Next Scheduled Refresh",
+                        imageVector = Icons.Default.Update,
+                        contentDescription = "Last Refresh",
                         tint = Color.White.copy(alpha = 0.7f),
                         modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Next auto-sync: ${scheduleStatus.nextRefreshTimeLabel}",
+                        text = "Last sync: ${scheduleStatus.lastRefreshedTimeStr}",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.85f)
                     )
                 }
 
-                Text(
-                    text = "Last: ${scheduleStatus.lastRefreshedTimeStr}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
             }
         }
     }

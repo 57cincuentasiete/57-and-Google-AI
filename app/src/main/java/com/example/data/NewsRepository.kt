@@ -24,9 +24,9 @@ class NewsRepository(private val newsDao: NewsDao) {
         newsDao.markAsRead(id)
     }
 
-    suspend fun refreshDigest(forcedSessionBatch: String? = null): Int {
+    suspend fun refreshDigest(forcedSessionBatch: String? = null, isNetworkSync: Boolean = false): Int {
         val session = forcedSessionBatch ?: NewsFetcher.getScheduledSession()
-        val latestArticles = NewsFetcher.fetchLatestDispatches(session)
+        val latestArticles = NewsFetcher.fetchLatestDispatches(session, isNetworkSync)
         newsDao.insertArticles(latestArticles)
         return latestArticles.size
     }

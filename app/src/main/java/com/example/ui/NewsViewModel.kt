@@ -68,21 +68,10 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
             filterArticles(articles, null, state, bookmarksOnly = true)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        // Initial setup and schedule check
+        // Initial setup and auto-refresh on app open
         viewModelScope.launch {
-            repository.ensureInitialData()
             updateScheduleStatus()
-        }
-
-        // Periodic schedule tick every 30 seconds to update countdown & auto-refresh at 8AM, 12PM, 18PM
-        viewModelScope.launch {
-            while (true) {
-                delay(30_000)
-                updateScheduleStatus()
-                if (RefreshScheduler.isRefreshDue(_uiState.value.lastRefreshedMillis)) {
-                    refreshDigest(showToast = false)
-                }
-            }
+            refreshDigest(showToast = false)
         }
     }
 
@@ -165,7 +154,7 @@ class NewsViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
             delay(600) // smooth refresh animation
-            val updatedCount = repository.refreshDigest()
+            val updatedCount = repository.refreshDigest(isNetworkSync = true)
             val now = System.currentTimeMillis()
             _uiState.value = _uiState.value.copy(
                 isRefreshing = false,

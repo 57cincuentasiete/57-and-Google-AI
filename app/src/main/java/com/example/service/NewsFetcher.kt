@@ -2,6 +2,11 @@ package com.example.service
 
 import com.example.data.NewsArticle
 import com.example.data.NewsRegion
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -37,7 +42,7 @@ object NewsFetcher {
      * - Regional Asian top media: South China Morning Post (SCMP), Nikkei Asia, Straits Times
      * Sourced without modifying core original reports and with direct origin verification URLs.
      */
-    fun fetchLatestDispatches(sessionTime: String = getScheduledSession()): List<NewsArticle> {
+    suspend fun fetchLatestDispatches(sessionTime: String = getScheduledSession(), isNetworkSync: Boolean = false): List<NewsArticle> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val dateFormater = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val todayStr = dateFormater.format(Date())
         val now = System.currentTimeMillis()
@@ -262,6 +267,157 @@ object NewsFetcher {
             )
         )
 
-        return articles
+        // ---------------- DYNAMIC LIVE SYNC (AI Powered) ----------------
+        if (isNetworkSync) {
+            articles.clear()
+            try {
+                val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+                
+                val requestBodyJson = JSONObject().apply {
+                    put("contents", org.json.JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", org.json.JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", "Use Google Search to find today's latest news from the following sources: Reuters, Lianhe Zaobao, SCMP, Bloomberg, BBC, and Financial Times. Gather a list of news articles and rank them by importance. You MUST select EXACTLY 20 most important news articles about China (or from Chinese sources) and EXACTLY 20 most important news articles about Overseas/Global events (40 articles total). Categorize each article. Return ONLY a JSON array of 40 objects. Each object MUST have exactly these keys: 'title', 'summary', 'url', 'sourceName', 'publishedAt' (ISO 8601 or similar), 'region' (must be exactly 'CHINA' or 'OVERSEAS'), and 'category'. Do not return any markdown formatting like ```json. Return raw JSON array only.")
+                                })
+                            })
+                        })
+                    })
+                    put("tools", org.json.JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("googleSearch", JSONObject())
+                        })
+                    })
+                }
+
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+                    .writeTimeout(90, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (responseBody != null) {
+                        val responseJson = JSONObject(responseBody)
+                        val candidates = responseJson.optJSONArray("candidates")
+                        if (candidates != null && candidates.length() > 0) {
+                            val firstCandidate = candidates.getJSONObject(0)
+                            val content = firstCandidate.optJSONObject("content")
+                            val parts = content?.optJSONArray("parts")
+                            if (parts != null && parts.length() > 0) {
+                                val text = parts.getJSONObject(0).optString("text", "[]")
+                                // Clean up the response text in case Gemini wraps it in markdown
+                                val cleanText = text.replace("```json", "").replace("```", "").trim()
+                                val jsonArray = org.json.JSONArray(cleanText)
+                                
+                                for (i in (jsonArray.length() - 1) downTo 0) {
+                                    val obj = jsonArray.getJSONObject(i)
+                                    val title = obj.optString("title", "No Title")
+                                    val summary = obj.optString("summary", "No Summary")
+                                    val urlPath = obj.optString("url", "")
+                                    val publishedAt = obj.optString("publishedAt", "")
+                                    val sourceName = obj.optString("sourceName", "Unknown Source")
+                                    val category = obj.optString("category", "General")
+                                    val regionStr = obj.optString("region", "OVERSEAS")
+
+                                    val mappedRegion = if (regionStr.equals("CHINA", ignoreCase = true)) NewsRegion.CHINA.name else NewsRegion.OVERSEAS.name
+
+                                    articles.add(
+                                        0, // add to top
+                                        NewsArticle(
+                                            id = "live_ai_${System.currentTimeMillis()}_$i",
+                                            title = "$sourceName: $title",
+                                            summary = summary,
+                                            fullContent = summary + "\n\nOriginal reporting by $sourceName.\n(AI Synthesized Live Update)",
+                                            region = mappedRegion,
+                                            sourceName = sourceName,
+                                            sourceCategory = "AI Live Sync",
+                                            originalUrl = urlPath,
+                                            publishedTimeStr = "$todayStr " + publishedAt.take(16).takeLast(5) + " (Live AI)",
+                                            sessionBatch = sessionTime,
+                                            dateStr = todayStr,
+                                            timestamp = now + (jsonArray.length() - i) * 1000, // Ensure AI news are placed top in order
+                                            topicTag = category
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    android.util.Log.e("NewsFetcher", "AI Sync Failed: ${response.code} ${response.message}")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // ---------------- BBC RSS SYNC ----------------
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                val request = Request.Builder()
+                    .url("https://feeds.bbci.co.uk/news/rss.xml")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val responseBodyStream = response.body?.byteStream()
+                    if (responseBodyStream != null) {
+                        val dbFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+                        val dBuilder = dbFactory.newDocumentBuilder()
+                        val doc = dBuilder.parse(responseBodyStream)
+                        doc.documentElement.normalize()
+                        
+                        val itemList = doc.getElementsByTagName("item")
+                        var addedCount = 0
+                        for (i in 0 until itemList.length) {
+                            if (addedCount >= 3) break
+                            val itemNode = itemList.item(i)
+                            if (itemNode.nodeType == org.w3c.dom.Node.ELEMENT_NODE) {
+                                val element = itemNode as org.w3c.dom.Element
+                                val title = element.getElementsByTagName("title").item(0)?.textContent ?: "No Title"
+                                val description = element.getElementsByTagName("description").item(0)?.textContent ?: ""
+                                val link = element.getElementsByTagName("link").item(0)?.textContent ?: ""
+                                
+                                articles.add(
+                                    0, // Add to top
+                                    NewsArticle(
+                                        id = "bbc_rss_${System.currentTimeMillis()}_$i",
+                                        title = title,
+                                        summary = description,
+                                        fullContent = description + "\n\nOriginal URL: $link",
+                                        region = NewsRegion.OVERSEAS.name,
+                                        sourceName = "BBC News",
+                                        sourceCategory = "Global Major Outlet",
+                                        originalUrl = link,
+                                        publishedTimeStr = "$todayStr Live RSS",
+                                        sessionBatch = sessionTime,
+                                        dateStr = todayStr,
+                                        timestamp = now + 20000 + (3 - addedCount), // Ensure correct ordering
+                                        topicTag = "Global News"
+                                    )
+                                )
+                                addedCount++
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                android.util.Log.e("NewsFetcher", "BBC RSS Sync Failed: ${e.message}")
+            }
+        }
+
+        return@withContext articles
     }
 }
