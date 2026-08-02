@@ -1,0 +1,6 @@
+{
+  "name": "World News Digest",
+  "description": "Digests top global news from premier sources into China and Overseas coverage, auto-refreshed three times daily.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
