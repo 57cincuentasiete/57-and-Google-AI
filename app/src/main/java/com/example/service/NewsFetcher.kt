@@ -271,7 +271,7 @@ object NewsFetcher {
         if (isNetworkSync) {
             articles.clear()
             try {
-                val apiKey = com.example.BuildConfig.GEMINI_API_KEY
+                val apiKey = com.example.BuildConfig.DS_API_KEY
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
                 
                 val requestBodyJson = JSONObject().apply {
